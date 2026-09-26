@@ -51,7 +51,7 @@ Classic use-cases include:
 | MIDI inc/dec wrap mode | ✅ |
 | MIDI feedback output | ✅ sends to every MIDI output device that will open |
 | Ctrl Rate attribute (sub-tick updates) | Mapped to **Send Freq** setting |
-| Stop on Mute attribute | ✅ |
+| Stop on Mute attribute | ⏳ stored, not implemented yet |
 | Plugin interface (XY pad, Mixer GUI…) | Not ported |
 | bmx/bmxml state persistence | ✅ via `MachineState` / XML serialisation |
 | ImportFinished (rename fix-up) | ✅ |
@@ -234,24 +234,25 @@ NAudio being present.
 **Saved songs.** Songs made with the ReBuzz `BTDSys PeerCtrl` build don't carry
 over: the machine name and the host are both different.
 
-## Test checklist (Buzz 1503)
+## Verified on Buzz 1503 (v1.0.1)
 
-Not yet verified on Buzz 1503:
+Tested on Jeskola Buzz build 1503 (32-bit):
 
-1. **Load.** The machine appears under Generators with no audio output plug and
-   no `BadImageFormatException`.
-2. **Work timing.** `Work()` is called when the song is stopped as well as
-   playing. Check that an Inertia glide completes from a slider drag while
-   stopped, and that its duration matches `Inertia / 10` ticks.
-3. **Settings dialog.** Opens from right-click → Assignment Settings…, lists
-   machines and parameters, and assignments take effect. The dialog runs on
-   its own STA thread and reads the song graph from there.
-4. **Save / reload.** Assignments, mapping curves and settings survive a
-   save and reload, and targets resolve after loading.
-5. **Template import / clone.** Assignments follow renamed targets
-   (`ImportFinished`).
-6. **MIDI.** CC input, Learn, Inc/Dec, and feedback on reload (with the
-   controller's output port not held by Buzz).
+1. **Load.** The machine appears under Generators and loads cleanly.
+2. **Glide timing.** Inertia glides complete, with the song stopped and
+   playing, in the expected time of `Inertia / 10` ticks.
+3. **MIDI with Inertia.** MIDI input drives glides without hanging Buzz
+   (fixed in v1.0.1).
+4. **Save / reload.** Assignments, mapping curves and settings survive a save
+   and reload, and targets resolve after loading.
+5. **Template import / clone.** Assignments follow renamed targets.
+6. **MIDI Learn.** Works.
+
+Not yet verified:
+
+- **Inc/Dec mode.** Needs an endless-encoder controller that sends CC 96/97.
+- **MIDI feedback.** Saved controller positions are sent on reload.
+- **Stop on mute.** Stored but not implemented yet.
 
 ---
 

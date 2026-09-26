@@ -897,7 +897,7 @@ namespace BTDSys.PeerCtrl
         void ShowAbout()
         {
             MessageBox.Show(
-                "Pedal Peer Control v1.0.0 (Buzz 1503, 32-bit)\n\n" +
+                "Pedal Peer Control v1.0.1 (Buzz 1503, 32-bit)\n\n" +
                 "Based on BTDSys PeerCtrl\n" +
                 "© 2002–2008 Ed Powley (BTDSys)\n\n" +
                 "Not affiliated with or endorsed by BTDSys.\n" +
