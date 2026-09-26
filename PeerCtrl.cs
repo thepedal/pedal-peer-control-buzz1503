@@ -773,15 +773,15 @@ namespace BTDSys.PeerCtrl
         // MIDI CC input  (mirrors miex::MidiControlChange from original)
         // =====================================================================
 
-        // Fired on every incoming MIDI CC – the settings dialog uses this for MIDI learn
-        public event Action<int, int> MidiCCReceived;  // ctrl (0-127), channel (0-based)
+        // Fired on every incoming MIDI CC – the settings dialog uses this for MIDI learn.
+        // All controllers are reported, including 96/97: those are ordinary
+        // CCs for an absolute assignment, and the Inc/Dec protocol's
+        // controller number is in the value byte (the dialog decides which).
+        public event Action<int, int, int> MidiCCReceived;  // ctrl (0-127), channel (0-based), value
 
         public void MidiControlChange(int ctrl, int channel, int value)
         {
-            // Notify the settings dialog for MIDI learn (ctrl 96/97 excluded –
-            // those are inc/dec meta-messages, not assignable controllers)
-            if (ctrl != 96 && ctrl != 97)
-                MidiCCReceived?.Invoke(ctrl, channel);
+            MidiCCReceived?.Invoke(ctrl, channel, value);
 
             int numTracks = host?.Machine?.TrackCount ?? 0;
             for (int t = 0; t < numTracks && t < MAX_TRACKS; t++)

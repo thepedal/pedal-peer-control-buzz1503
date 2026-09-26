@@ -509,23 +509,30 @@ namespace BTDSys.PeerCtrl
         }
 
         // Called from machine's audio thread – marshal to UI thread
-        void OnMidiLearn(int ctrl, int channel)
+        void OnMidiLearn(int ctrl, int channel, int value)
         {
             if (!_learning) return;
-            Dispatcher.Invoke(() =>
+            // BeginInvoke: never block the MIDI thread on the dialog thread.
+            Dispatcher.BeginInvoke(new Action(() =>
             {
+                if (!_learning) return;
                 var a = Current();
                 if (a == null) { StopLearn(); return; }
 
+                // Inc/Dec encoders send CC 96 (inc) / 97 (dec) with their own
+                // controller number as the value. Otherwise 96/97 are learned
+                // as ordinary absolute CCs, like any other controller.
+                int learned = (a.MidiIncDec && (ctrl == 96 || ctrl == 97)) ? value : ctrl;
+
                 _suppress = true;
-                a.MidiController = ctrl;
+                a.MidiController = learned;
                 a.MidiChannel    = channel + 1;   // store as 1-based
-                _midiCtrlCombo.SetSelectedIndex(ctrl + 1);
+                _midiCtrlCombo.SetSelectedIndex(learned + 1);
                 _midiChanCombo.SetSelectedIndex(channel + 1);
                 _suppress = false;
 
                 StopLearn();
-            });
+            }));
         }
 
         // ── Helpers ────────────────────────────────────────────────────────────
