@@ -219,7 +219,7 @@ namespace BTDSys.PeerCtrl
     [MachineDecl(
         Name        = "Pedal Peer Control",
         ShortName   = "Peer Control",
-        Author      = "WDE (after BTDSys PeerCtrl by Ed Powley)",
+        Author      = "thepedal (after BTDSys PeerCtrl by Ed Powley)",
         MaxTracks   = PeerCtrlMachine.MAX_TRACKS,
         InputCount  = 0,
         OutputCount = 0)]

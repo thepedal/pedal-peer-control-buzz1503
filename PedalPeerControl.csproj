@@ -47,7 +47,7 @@
     <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
 
     <AssemblyTitle>Pedal Peer Control</AssemblyTitle>
-    <Company>WDE</Company>
+    <Company>thepedal</Company>
     <Product>Pedal Peer Control</Product>
     <Description>Peer control machine for Buzz 1503, based on BTDSys PeerCtrl</Description>
     <Copyright>Based on BTDSys PeerCtrl © 2002-2008 Ed Powley (BTDSys)</Copyright>
