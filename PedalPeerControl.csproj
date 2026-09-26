@@ -51,7 +51,7 @@
     <Product>Pedal Peer Control</Product>
     <Description>Peer control machine for Buzz 1503, based on BTDSys PeerCtrl</Description>
     <Copyright>Based on BTDSys PeerCtrl © 2002-2008 Ed Powley (BTDSys)</Copyright>
-    <Version>1.0.1</Version>
+    <Version>1.0.2</Version>
   </PropertyGroup>
 
   <ItemGroup>

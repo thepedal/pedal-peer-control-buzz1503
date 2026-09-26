@@ -234,7 +234,7 @@ NAudio being present.
 **Saved songs.** Songs made with the ReBuzz `BTDSys PeerCtrl` build don't carry
 over: the machine name and the host are both different.
 
-## Verified on Buzz 1503 (v1.0.1)
+## Verified on Buzz 1503 (v1.0.2)
 
 Tested on Jeskola Buzz build 1503 (32-bit):
 
@@ -246,7 +246,8 @@ Tested on Jeskola Buzz build 1503 (32-bit):
 4. **Save / reload.** Assignments, mapping curves and settings survive a save
    and reload, and targets resolve after loading.
 5. **Template import / clone.** Assignments follow renamed targets.
-6. **MIDI Learn.** Works.
+6. **MIDI Learn.** Works, including CC 96/97 as ordinary absolute
+   controllers (fixed in v1.0.2; checked with a BCR2000).
 
 Not yet verified:
 
