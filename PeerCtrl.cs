@@ -215,7 +215,7 @@ namespace BTDSys.PeerCtrl
         MaxTracks   = PeerCtrlMachine.MAX_TRACKS,
         InputCount  = 0,
         OutputCount = 0)]
-    public class PeerCtrlMachine : IBuzzMachine, INotifyPropertyChanged
+    public class PeerCtrlMachine : IBuzzMachine
     {
         public const int MAX_TRACKS = 64;
 
@@ -239,7 +239,9 @@ namespace BTDSys.PeerCtrl
                 if (!InertiaOn)
                     for (int i = 0; i < MAX_TRACKS; i++)
                         StopInertia(_tracks[i]);
-                N(nameof(Inertia));
+                // Deliberately no PropertyChanged here. Raising it from this
+                // parameter setter hung Buzz 1503 (most likely a loop with
+                // the host's own parameter-change handling).
             }
         }
         int   _inertia;
@@ -824,14 +826,6 @@ namespace BTDSys.PeerCtrl
         public TrackState GetTrack(int i)    => _tracks[i];
         public int        ActiveTrackCount   => host?.Machine?.TrackCount ?? 1;
         public IBuzz      BuzzHost           => Buzz;
-
-        // =====================================================================
-        // INotifyPropertyChanged
-        // =====================================================================
-
-        public event PropertyChangedEventHandler PropertyChanged;
-        void N(string name) =>
-            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
     }
 
     // =========================================================================
