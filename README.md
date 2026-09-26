@@ -75,7 +75,7 @@ Classic use-cases include:
 | Name | Range | Default | Description |
 |------|-------|---------|-------------|
 | MIDI Inc/Dec Amount | 0–65534 | 1024 | Step size for endless-encoder CC 96/97 messages |
-| Send Freq | 0–64 | 2 | How often (in Work() calls) inertia is pushed out. 0 = tick only |
+| Send Freq | 0–64 | 2 | How often (in Work() calls) inertia is pushed out. 0 behaves as 1 (every call), since Buzz 1503 has no Tick() |
 | Stop on mute | 0/1 | 0 | When 1, no control changes are sent while the machine is muted |
 
 ---
@@ -211,6 +211,21 @@ Its jobs moved:
   `Value` parameters) runs on the first `Work()` after construction,
   `MachineState.set` or `ImportFinished`.
 - Unresolved targets are retried every 64 `Work()` calls.
+
+**Threading.** Calling `IParameter.SetValue` on a target from `Work()` (the
+audio thread) hung Buzz 1503. All parameter reads and writes and all song-graph
+access now happen on the UI thread:
+
+- `Work()`, MIDI input and the parameter setters only update the machine's
+  own state, then post a flush to the UI dispatcher.
+- The flush applies pending values to targets, writes MIDI moves back to
+  the machine's own **Value** parameter, and sends MIDI feedback.
+- The post-load step and target-resolution retries are also posted to the UI
+  thread.
+
+The MIDI write-back now uses the glide target rather than the current glide
+position, and its echo is ignored so it neither cancels the glide nor sends
+feedback back to the controller.
 
 **MIDI feedback.** Uses `winmm` (`midiOutOpen` / `midiOutShortMsg`) directly
 instead of NAudio, so the machine stays a single DLL with no dependency on

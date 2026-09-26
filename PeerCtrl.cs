@@ -11,7 +11,9 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Threading;
 using System.Windows;
+using System.Windows.Threading;
 using System.Windows.Input;
 using Buzz.MachineInterface;   // IBuzzMachine, IBuzzMachineHost, MachineDecl, ParameterDecl, MasterInfo
 using BuzzGUI.Interfaces;      // IMenuItem, IMachine, IParameter, IParameterGroup, IBuzz, etc.
@@ -182,6 +184,12 @@ namespace BTDSys.PeerCtrl
         public float LastSent      = -1f;
         public bool  Slaved        = false;
 
+        // Cross-thread hand-off to the UI thread (see PeerCtrlMachine.Flush).
+        public volatile bool Dirty;            // targets need ValueCurrent applied
+        public volatile bool PendingFeedback;  // send MIDI feedback with it
+        public int  WriteBack = -1;            // own Value param write-back (0-65534)
+        public volatile int EchoGuard = -1;    // ignore our own write-back echo
+
         public List<TrackAssignment> Assignments = new List<TrackAssignment>();
     }
 
@@ -273,7 +281,9 @@ namespace BTDSys.PeerCtrl
         public void SetValue(int value, int track)
         {
             if ((uint)track >= MAX_TRACKS) return;
-            if (_tracks[track].Slaved) return;
+            var tsv = _tracks[track];
+            if (tsv.EchoGuard == value) { tsv.EchoGuard = -1; return; }  // our own MIDI write-back
+            if (tsv.Slaved) return;
             if (_initialising)
             {
                 _initialising = false;
@@ -319,6 +329,15 @@ namespace BTDSys.PeerCtrl
         long _lastWorkTimestamp;
         const int MaxSamplesPerWork = 8192;  // clamp after stalls (song load etc.)
 
+        // Threading rule (Buzz 1503): IParameter.SetValue / GetValue and song-
+        // graph access happen ONLY on the UI thread. Calling SetValue on a
+        // target from Work() (audio thread) hung Buzz 1503. Work(), MIDI and
+        // parameter setters only update TrackState and request a Flush(),
+        // which runs on the UI dispatcher.
+        readonly Dispatcher _ui;
+        int _flushQueued;   // 0/1, Interlocked
+        int _retryQueued;   // 0/1, Interlocked
+
         IBuzz Buzz => host?.Machine?.Graph?.Buzz;
 
         // =====================================================================
@@ -330,6 +349,9 @@ namespace BTDSys.PeerCtrl
             this.host = host;
             for (int i = 0; i < MAX_TRACKS; i++)
                 _tracks[i] = new TrackState();
+
+            // The constructor runs on Buzz's UI thread ({U} in the managed API docs).
+            _ui = Application.Current?.Dispatcher ?? Dispatcher.CurrentDispatcher;
         }
 
         // =====================================================================
@@ -503,11 +525,79 @@ namespace BTDSys.PeerCtrl
 
         void SendNow(TrackState ts, bool fromMidi = false)
         {
-            ts.ValueCurrent = Clamp01(ts.ValueCurrent);
+            ts.ValueCurrent    = Clamp01(ts.ValueCurrent);
+            ts.LastSent        = ts.ValueCurrent;
+            ts.PendingFeedback = !fromMidi;
+            ts.Dirty           = true;
+            RequestFlush();
+        }
+
+        void RequestFlush()
+        {
+            if (Interlocked.Exchange(ref _flushQueued, 1) != 0) return;
+            try { _ui.BeginInvoke(DispatcherPriority.Normal, new Action(Flush)); }
+            catch { Interlocked.Exchange(ref _flushQueued, 0); }
+        }
+
+        // UI thread: push pending values to targets and write MIDI values back
+        // to our own Value parameter.
+        void Flush()
+        {
+            Interlocked.Exchange(ref _flushQueued, 0);
             var buzz = Buzz;
-            foreach (var a in ts.Assignments)
-                a.ApplyValue(ts.ValueCurrent, buzz, sendFeedback: !fromMidi);
-            ts.LastSent = ts.ValueCurrent;
+            IParameter ownValueParam = null;
+            bool ownLooked = false;
+
+            for (int t = 0; t < MAX_TRACKS; t++)
+            {
+                var ts = _tracks[t];
+                if (!ts.Dirty) continue;
+                ts.Dirty = false;
+
+                float v  = ts.ValueCurrent;
+                bool  fb = ts.PendingFeedback;
+                TrackAssignment[] list;
+                try { list = ts.Assignments.ToArray(); } catch { list = new TrackAssignment[0]; }
+                foreach (var a in list)
+                {
+                    try { a.ApplyValue(v, buzz, sendFeedback: fb); } catch { }
+                }
+
+                int wb = Interlocked.Exchange(ref ts.WriteBack, -1);
+                if (wb >= 0)
+                {
+                    try
+                    {
+                        if (!ownLooked)
+                        {
+                            ownLooked = true;
+                            var machine = host?.Machine;
+                            if (machine?.ParameterGroups?.Count > 2)
+                                ownValueParam = machine.ParameterGroups[2].Parameters?.LastOrDefault();
+                        }
+                        if (ownValueParam != null)
+                        {
+                            ts.EchoGuard = wb;
+                            ownValueParam.SetValue(t, wb);
+                        }
+                    }
+                    catch { }
+                }
+            }
+        }
+
+        void RequestRetryResolve()
+        {
+            if (Interlocked.Exchange(ref _retryQueued, 1) != 0) return;
+            try
+            {
+                _ui.BeginInvoke(DispatcherPriority.Background, new Action(() =>
+                {
+                    Interlocked.Exchange(ref _retryQueued, 0);
+                    try { ResolveAllMachines(); } catch { }
+                }));
+            }
+            catch { Interlocked.Exchange(ref _retryQueued, 0); }
         }
 
         void StopInertia(TrackState ts)
@@ -537,12 +627,7 @@ namespace BTDSys.PeerCtrl
             }
 
             if (shouldSend && !_initialising)
-            {
-                var buzz = Buzz;
-                foreach (var a in ts.Assignments)
-                    a.ApplyValue(ts.ValueCurrent, buzz, sendFeedback: !ts.SlidingFromMidi);
-                ts.LastSent = ts.ValueCurrent;
-            }
+                SendNow(ts, ts.SlidingFromMidi);
         }
 
         static float Clamp01(float v) => v < 0f ? 0f : v > 1f ? 1f : v;
@@ -626,18 +711,23 @@ namespace BTDSys.PeerCtrl
         // Control-machine Work signature (Buzz managed API): no audio I/O.
         public void Work()
         {
+            // Audio thread: no IParameter / song-graph calls in here. Anything
+            // that needs them is posted to the UI thread.
             try
             {
                 if (_loadPending)
                 {
                     _loadPending = false;
-                    RunLoadStep();
+                    _ui.BeginInvoke(DispatcherPriority.Background, new Action(() =>
+                    {
+                        try { RunLoadStep(); } catch { }
+                    }));
                 }
                 else if (++_retryCounter >= RetryEveryNWorks)
                 {
                     _retryCounter = 0;
                     if (AnyUnresolved())
-                        ResolveAllMachines();
+                        RequestRetryResolve();
                 }
             }
             catch { /* never let the host's audio thread see an exception */ }
@@ -646,12 +736,17 @@ namespace BTDSys.PeerCtrl
             _samplesAccum  += n;
             _updateCounter++;
 
-            // Sub-tick inertia updates (mirrors original MDKWork behaviour)
-            if (SendFreq != 0 && _updateCounter >= SendFreq)
+            // Sub-tick inertia updates (mirrors original MDKWork behaviour).
+            // There is no Tick() on Buzz 1503, so Send Freq 0 behaves as 1.
+            int every = SendFreq < 1 ? 1 : SendFreq;
+            if (_updateCounter >= every)
             {
-                int numTracks = host?.Machine?.TrackCount ?? 0;
-                for (int t = 0; t < numTracks && t < MAX_TRACKS; t++)
-                    UpdateInertia(_tracks[t], _samplesAccum);
+                for (int t = 0; t < MAX_TRACKS; t++)
+                {
+                    var ts = _tracks[t];
+                    if (ts.Sliding || ts.ValueCurrent != ts.LastSent)
+                        UpdateInertia(ts, _samplesAccum);
+                }
 
                 _samplesAccum  = 0;
                 _updateCounter = 0;
@@ -725,23 +820,16 @@ namespace BTDSys.PeerCtrl
                 }
 
                 // Feed the new value back into the pattern editor's Value parameter
-                // so the slider follows MIDI input visually
+                // so the slider follows MIDI input visually. Uses the glide
+                // TARGET, and is written on the UI thread by Flush().
                 if (handled)
                 {
-                    try
-                    {
-                        int pval = (int)(ts.ValueCurrent * 65534.0f + 0.5f);
-                        pval = Math.Max(0, Math.Min(65534, pval));
-                        // Group 2 = track params; Value is the last param in track group
-                        var machine = host?.Machine;
-                        if (machine?.ParameterGroups?.Count > 2)
-                        {
-                            var trackGroup = machine.ParameterGroups[2];
-                            var valueParam = trackGroup?.Parameters?.LastOrDefault();
-                            valueParam?.SetValue(t, pval);
-                        }
-                    }
-                    catch { }
+                    int pval = (int)(ts.ValueTarget * 65534.0f + 0.5f);
+                    pval = Math.Max(0, Math.Min(65534, pval));
+                    Interlocked.Exchange(ref ts.WriteBack, pval);
+                    ts.PendingFeedback = false;   // never echo MIDI back to the controller
+                    ts.Dirty = true;
+                    RequestFlush();
                 }
             }
         }
